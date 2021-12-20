@@ -3,6 +3,7 @@
 from collections import namedtuple
 import numpy as np
 from shapely.geometry import Polygon
+
 """
 reference from :
 https://github.com/MhLiao/DB/blob/3c32b808d4412680310d3d28eeb6a2d5bf1566c5/concern/icdar2015_eval/detection/iou.py#L8
@@ -10,15 +11,26 @@ https://github.com/MhLiao/DB/blob/3c32b808d4412680310d3d28eeb6a2d5bf1566c5/conce
 
 
 class DetectionIoUEvaluator(object):
+    """ 文字检测和普通目标检测有点不太一样，所以用了个人觉得并不是最精确的iou指标
+
+    iou指标有个0.5的阈值，好像gt和pred达到0.5就算匹配了，没有扣分
+    """
+
     def __init__(self, iou_constraint=0.5, area_precision_constraint=0.5):
         self.iou_constraint = iou_constraint
         self.area_precision_constraint = area_precision_constraint
 
     def evaluate_image(self, gt, pred):
+        """ 计算一张图上的所有检测框精度
+
+        输入的文本内容目前看好像是用不到的~~
+        """
+
         def get_union(pD, pG):
             return Polygon(pD).union(Polygon(pG)).area
 
         def get_intersection_over_union(pD, pG):
+            # 因为底层是使用Polygon计算交并比，所以其实支持任意多边形的
             return get_intersection(pD, pG) / get_union(pD, pG)
 
         def get_intersection(pD, pG):
@@ -142,7 +154,7 @@ class DetectionIoUEvaluator(object):
             for gtNum in range(len(gtPols)):
                 for detNum in range(len(detPols)):
                     if gtRectMat[gtNum] == 0 and detRectMat[
-                            detNum] == 0 and gtNum not in gtDontCarePolsNum and detNum not in detDontCarePolsNum:
+                        detNum] == 0 and gtNum not in gtDontCarePolsNum and detNum not in detDontCarePolsNum:
                         if iouMat[gtNum, detNum] > self.iou_constraint:
                             gtRectMat[gtNum] = 1
                             detRectMat[detNum] = 1
@@ -212,11 +224,31 @@ class DetectionIoUEvaluator(object):
 
         return methodMetrics
 
+    def evaluate_image_simple(self, gt, pred):
+        """ 官方原版接口太复杂，这里扩展支持普通的list的函数，内部实现数据类型扩展 """
+        gt = [{'points': x, 'text': '', 'ignore': False} for x in gt]
+        pred = [{'points': x, 'text': '', 'ignore': False} for x in pred]
+        return self.evaluate_image(gt, pred)
+
+    @classmethod
+    def eval(cls, gts, preds):
+        """ N张图的IoU检测分数
+
+        gts、preds都是长度为N的list
+        每个元素值仍然是list，存储每张图的所有boxes检测框，polygon格式表示的任意多边形
+        """
+        evaluator = DetectionIoUEvaluator()
+        results = []
+        for gt, pred in zip(gts, preds):
+            results.append(evaluator.evaluate_image_simple(gt, pred))
+        metrics = evaluator.combine_results(results)
+        return metrics
+
 
 if __name__ == '__main__':
     evaluator = DetectionIoUEvaluator()
     gts = [[{
-        'points': [(0, 0), (1, 0), (1, 1), (0, 1)],
+        'points': [(0, 0), (1, 0), (1, 1), (0.5, 1), (0, 1)],
         'text': 1234,
         'ignore': False,
     }, {

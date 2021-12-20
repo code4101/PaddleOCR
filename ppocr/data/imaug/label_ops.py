@@ -75,10 +75,12 @@ class DetLabelEncode(object):
         return rect
 
     def expand_points_num(self, boxes):
+        # 计算边数最多的多边形
         max_points_num = 0
         for box in boxes:
             if len(box) > max_points_num:
                 max_points_num = len(box)
+        # 将边数少的多边形，扩展对齐到 max_points_num
         ex_boxes = []
         for box in boxes:
             ex_box = box + [box[-1]] * (max_points_num - len(box))

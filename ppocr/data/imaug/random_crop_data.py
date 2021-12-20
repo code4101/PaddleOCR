@@ -124,6 +124,8 @@ def crop_area(im, text_polys, min_crop_side_ratio, max_tries):
 
 
 class EastRandomCropData(object):
+    """ EAST中图片随机裁剪的方法以及改进 - 简书: https://www.jianshu.com/p/54f084e1dcd6 """
+
     def __init__(self,
                  size=(640, 640),
                  max_tries=10,

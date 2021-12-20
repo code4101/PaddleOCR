@@ -45,7 +45,7 @@ class BaseModel(nn.Layer):
             self.transform = build_transform(config['Transform'])
             in_channels = self.transform.out_channels
 
-        # build backbone, backbone is needed for del, rec and cls
+        # build backbone, backbone is needed for det, rec and cls
         config["Backbone"]['in_channels'] = in_channels
         self.backbone = build_backbone(config["Backbone"], model_type)
         in_channels = self.backbone.out_channels

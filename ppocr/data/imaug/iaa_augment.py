@@ -56,6 +56,14 @@ class AugmenterBuilder(object):
 
 
 class IaaAugment():
+    """ iaa名称取自：import imgaug.augmenters as iaa
+    这里有些图像增强方法，可以通过配置文件指定
+
+    注意这个增广，标注也会跟着变
+
+    底层是用imgaug库实现的，具体原理结构还没深究
+    """
+
     def __init__(self, augmenter_args=None, **kwargs):
         if augmenter_args is None:
             augmenter_args = [{

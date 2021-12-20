@@ -29,10 +29,16 @@ class DecodeImage(object):
     """ decode image """
 
     def __init__(self, img_mode='RGB', channel_first=False, **kwargs):
+        # img_mode是输入的图片格式，不过这个因为cv2.imdecode参数1的实现有bug，准确来说是-1，会导致不能传GRAP参数
+
+        # **kwargs在有些场合，能获取Global的配置信息
         self.img_mode = img_mode
         self.channel_first = channel_first
 
     def __call__(self, data):
+        # operators 要统一写成仿函数类，初始化带**kwargs方便获取扩展参数
+        #   __call__的输入是一个data字典，处理好返回新的data字典
+        #   这个框架部分也不一定是写数据增广的功能，也可以写很多对label等的处理
         img = data['image']
         if six.PY2:
             assert type(img) is str and len(
@@ -41,7 +47,7 @@ class DecodeImage(object):
             assert type(img) is bytes and len(
                 img) > 0, "invalid input 'img' in DecodeImage"
         img = np.frombuffer(img, dtype='uint8')
-        img = cv2.imdecode(img, 1)
+        img = cv2.imdecode(img, 1)  # 这是有bug的，应该把1改成0，不过影响不大，我先不动
         if img is None:
             return None
         if self.img_mode == 'GRAY':
@@ -54,6 +60,7 @@ class DecodeImage(object):
             img = img.transpose((2, 0, 1))
 
         data['image'] = img
+        # 返回的是cv2格式的图片
         return data
 
 
@@ -83,11 +90,13 @@ class NRTRDecodeImage(object):
         elif self.img_mode == 'RGB':
             assert img.shape[2] == 3, 'invalid shape of image[%s]' % (img.shape)
             img = img[:, :, ::-1]
-        img = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         if self.channel_first:
             img = img.transpose((2, 0, 1))
+        # 读取为灰度图的功能，返回 [1, H, W]
         data['image'] = img
         return data
+
 
 class NormalizeImage(object):
     """ normalize image such as substract mean, divide std
@@ -215,7 +224,7 @@ class DetResizeForTest(object):
             else:
                 ratio = 1.
         elif self.limit_type == 'resize_long':
-            ratio = float(limit_side_len) / max(h,w)
+            ratio = float(limit_side_len) / max(h, w)
         else:
             raise Exception('not support limit type, image ')
         resize_h = int(h * ratio)

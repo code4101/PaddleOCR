@@ -36,6 +36,15 @@ class DetMetric(object):
            ignore_tags: np.ndarray  of shape (N, K), indicates whether a region is ignorable or not.
        preds: a list of dict produced by post process
             points: np.ndarray of shape (N, K, 4, 2), the polygons of objective regions.
+
+        自己调试补充的笔记：
+        list batch:
+            image: (1, 3, 736, 1280)，原始图数据，应该只有一张图N=1，检测不方便多图批量处理吧
+            ratio_list: (1, 4)，与描述不符，这里应该是 (N, 4)
+            polygons: (1, 4, 4, 2)，K是检测框数量，这里是gt标注框
+            ignore_tags: (1, 4)，是否为难样本，一般都是False
+        list[dict] preds: 一般长度只有1，直接取 preds[0]['points']
+            points: (3, 4, 2)，检测出3个框
        '''
         gt_polyons_batch = batch[2]
         ignore_tags_batch = batch[3]

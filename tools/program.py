@@ -37,13 +37,30 @@ import numpy as np
 
 class ArgsParser(ArgumentParser):
     def __init__(self):
+        """ 这是pp自定义的一个命令行参数解释器 """
+
+        ''' RawDescriptionHelpFormatter
+        
+        formatter_class：重置 help 信息输出的格式，可供选择的参数有：
+        HelpFormatter、ArgumentDefaultsHelpFormatter、RawDescriptionHelpFormatter、RawTextHelpFormatter
+        详见 Python 模块简介-argparse: https://mp.weixin.qq.com/s/s49awBykc7pFEV4XnFNO6g
+
+        默认是HelpFormatter，应该是argparse提供的另一种使用提示吧。
+        使用--help，获得的好像也是正常提示，没啥区别
+        报错的情况我也测试了下，目前发现不了跟HelpFormatter有啥区别，先不管了。
+        '''
         super(ArgsParser, self).__init__(
             formatter_class=RawDescriptionHelpFormatter)
+
         self.add_argument("-c", "--config", help="configuration file to use")
+
+        # argparse的nargs用法:https://docs.python.org/3/library/argparse.html?highlight=argparse%20nargs#nargs
+        # +表示使用-o时，至少要提供1个参数值，也可以有多个值，但不能为空。进入内存后会组织为list对象。
         self.add_argument(
             "-o", "--opt", nargs='+', help="set configuration options")
 
     def parse_args(self, argv=None):
+        """ 注意执行parse_args时，这里重载了 """
         args = super(ArgsParser, self).parse_args(argv)
         assert args.config is not None, \
             "Please specify --config=configure_file_path."
@@ -51,6 +68,8 @@ class ArgsParser(ArgumentParser):
         return args
 
     def _parse_opt(self, opts):
+        """ 把list格式的opt值，重新设计为字典格式
+        """
         config = {}
         if not opts:
             return config
@@ -62,7 +81,10 @@ class ArgsParser(ArgumentParser):
 
 
 class AttrDict(dict):
-    """Single level attribute dict, NOT recursive"""
+    """Single level attribute dict, NOT recursive
+
+    AttrDict就是个普通的字典类，没啥特别的
+    """
 
     def __init__(self, **kwargs):
         super(AttrDict, self).__init__()
@@ -74,13 +96,16 @@ class AttrDict(dict):
         raise AttributeError("object has no attribute '{}'".format(key))
 
 
+# 定义了一个全局配置字典
 global_config = AttrDict()
 
 default_config = {'Global': {'debug': False, }}
 
 
 def load_config(file_path):
-    """
+    """ 解析传入的yaml配置文件
+    把配置文件的参数合并到全局配置，函数返回值也是全局配置
+
     Load config from yml/yaml file.
     Args:
         file_path (str): Path of the config file to be loaded.
@@ -94,7 +119,8 @@ def load_config(file_path):
 
 
 def merge_config(config):
-    """
+    """ 可以递归，把配置更新合并到全局配置中
+
     Merge config into global config.
     Args:
         config (dict): Config to be merged.
@@ -109,7 +135,7 @@ def merge_config(config):
         else:
             sub_keys = key.split('.')
             assert (
-                sub_keys[0] in global_config
+                    sub_keys[0] in global_config
             ), "the sub_keys can only be one of global_config: {}, but get: {}, please check your running command".format(
                 global_config.keys(), sub_keys[0])
             cur = global_config[sub_keys[0]]
@@ -173,7 +199,7 @@ def train(config,
             start_eval_step = 1e111
         logger.info(
             "During the training process, after the {}th iteration, an evaluation is run every {} iterations".
-            format(start_eval_step, eval_batch_step))
+                format(start_eval_step, eval_batch_step))
     save_epoch_step = config['Global']['save_epoch_step']
     save_model_dir = config['Global']['save_model_dir']
     if not os.path.exists(save_model_dir):
@@ -252,12 +278,12 @@ def train(config,
                 vdl_writer.add_scalar('TRAIN/lr', lr, global_step)
 
             if dist.get_rank() == 0 and (
-                (global_step > 0 and global_step % print_batch_step == 0) or
-                (idx >= len(train_dataloader) - 1)):
+                    (global_step > 0 and global_step % print_batch_step == 0) or
+                    (idx >= len(train_dataloader) - 1)):
                 logs = train_stats.log()
                 strs = 'epoch: [{}/{}], iter: {}, {}, reader_cost: {:.5f} s, batch_cost: {:.5f} s, samples: {}, ips: {:.5f}'.format(
                     epoch, epoch_num, global_step, logs, train_reader_cost /
-                    print_batch_step, train_batch_cost / print_batch_step,
+                                                         print_batch_step, train_batch_cost / print_batch_step,
                     batch_sum, batch_sum / train_batch_cost)
                 logger.info(strs)
                 train_batch_cost = 0.0
@@ -291,7 +317,7 @@ def train(config,
                             vdl_writer.add_scalar('EVAL/{}'.format(k),
                                                   cur_metric[k], global_step)
                 if cur_metric[main_indicator] >= best_model_dict[
-                        main_indicator]:
+                    main_indicator]:
                     best_model_dict.update(cur_metric)
                     best_model_dict['best_epoch'] = epoch
                     save_model(
@@ -389,25 +415,51 @@ def eval(model,
 
 
 def preprocess(is_train=False):
-    FLAGS = ArgsParser().parse_args()
-    config = load_config(FLAGS.config)
-    merge_config(FLAGS.opt)
+    """ 用于获取配置、设备、日志、visualdl相关对象工具 """
 
+    # 1 config
+    # global_config/config <-- default_config + 配置文件 FLAGS.config + 命令行参数 FLAGS.opt
+    FLAGS = ArgsParser().parse_args()
+    config = load_config(FLAGS.config)  # 返回的是全局变量global_config
+    # 可以递归，把配置（这里是命令行参数）更新合并到全局配置中
+    merge_config(FLAGS.opt)  # 该函数会修改全局变量，所以会修改config的值
+
+    ''' pp处理跟d2有点区别。d2底层默认配置了很复杂的一套默认参数值。
+    pp则几乎什么都没有，只有很简洁的一个默认配置，然后叠加配置文件里的参数，再更新命令行设置的参数。
+    相比d2的好处，是pp的yaml是纯粹的yaml配置文件，没有任何特殊的依赖要求。
+    所以框架里有些必须要获取的结构内容，但很容易自定义扩展各种其他配置参数值。
+    
+    因为该种设计模式，后面的接口会有对应很多默认值的设置，确保没有传递对应配置时，能run。
+    '''
+
+    # 2 device
     # check if set use_gpu=True in paddlepaddle cpu version
     use_gpu = config['Global']['use_gpu']
-    check_gpu(use_gpu)
+    check_gpu(use_gpu)  # 在使用gpu时会检查cuda是否可用
 
+    # 检查是否在所支持的算法组件里，自己应该可以通过后续框架的学习，扩展自己的算法组件。
+    # 需要的话，自己可以把这些算法论文都搜出来，学习一遍。
     alg = config['Architecture']['algorithm']
     assert alg in [
         'EAST', 'DB', 'SAST', 'Rosetta', 'CRNN', 'STARNet', 'RARE', 'SRN',
         'CLS', 'PGNet', 'Distillation', 'NRTR', 'TableAttn'
     ]
 
+    # dist.ParallelEnv().dev_id不太清楚作用，看文档也推荐不直接使用这个接口。
+    #   我测试了下，虽然0卡有在用，默认还是返回0，总之不是啥智能判断获得空余显卡这种功能~
+    #   简单来说，就是设置了device，细节我也先不用太纠结。
+    # 应该是跟分布式有关，在分布式的时候，这里才会有些区别。
+    #   默认单卡情况，第14行获得的dist.get_world_size()也是1。
+    #   第14行会自动标记一个是否使用分布式训练的参数distributed。
     device = 'gpu:{}'.format(dist.ParallelEnv().dev_id) if use_gpu else 'cpu'
     device = paddle.set_device(device)
 
     config['Global']['distributed'] = dist.get_world_size() != 1
+
+    # 3 logger
     if is_train:
+        # 跟is_train有关，如果开启，会在save_model_dir目录下备份一个config.yml配置文件，
+        # 并且会把日志记录到train.log文件中。
         # save_config
         save_model_dir = config['Global']['save_model_dir']
         os.makedirs(save_model_dir, exist_ok=True)
@@ -415,9 +467,12 @@ def preprocess(is_train=False):
             yaml.dump(
                 dict(config), f, default_flow_style=False, sort_keys=False)
         log_file = '{}/train.log'.format(save_model_dir)
-    else:
+    else:  # 否则虽然有日志类，但不会把运行记录到文件中
         log_file = None
     logger = get_logger(name='root', log_file=log_file)
+
+    # 4 vdl_write，如果开启了可视化功能
+    # 在save_model_dir目录下，会再建立一个vdl目录，返回一个vdl_writer对象
     if config['Global']['use_visualdl']:
         from visualdl import LogWriter
         save_model_dir = config['Global']['save_model_dir']
@@ -426,6 +481,8 @@ def preprocess(is_train=False):
         vdl_writer = LogWriter(logdir=vdl_writer_path)
     else:
         vdl_writer = None
+
+    # 用logger输出config的内容
     print_dict(config, logger)
     logger.info('train with paddle {} and device {}'.format(paddle.__version__,
                                                             device))

@@ -2,27 +2,27 @@ Global:
   use_gpu: true
   epoch_num: 1200
   log_smooth_window: 20
-  print_batch_step: 10
-  save_model_dir: ./output/db_mv3/
+  print_batch_step: 100
+  save_model_dir: /home/chenkunze/pp/output/ch_db_res18/
   save_epoch_step: 1200
-  # evaluation is run every 2000 iterations after the 0th iteration
+  # evaluation is run every 2000 iterations after the 3000th iteration
   eval_batch_step: [0, 2000]
   cal_metric_during_train: False
-  pretrained_model: ./pretrain_models/MobileNetV3_large_x0_5_pretrained
-  checkpoints:
-  save_inference_dir:
-  use_visualdl: False
-  infer_img: doc/imgs_en/img_10.jpg
-  save_res_path: ./output/det_db/predicts_db.txt
+  pretrained_model: /home/chenkunze/pp/pretrain_models/ch_ppocr_server_v2.0_det_train/best_accuracy
+  checkpoints: /home/chenkunze/pp/output/ch_db_res18/latest
+  save_inference_dir: /home/chenkunze/pp/output/ch_db_res18/infer
+  use_visualdl: True
+  infer_img: /home/datasets/RealEstate2020/2_data/refineAgree/imgs
+  save_res_path: /home/chenkunze/pp/output/ch_db_res18/predicts_db.txt  # 预测结果保存路径
 
 Architecture:
   model_type: det
   algorithm: DB
   Transform:
   Backbone:
-    name: MobileNetV3
-    scale: 0.5
-    model_name: large
+    name: ResNet
+    layers: 18
+    disable_se: True
   Neck:
     name: DBFPN
     out_channels: 256
@@ -43,7 +43,9 @@ Optimizer:
   beta1: 0.9
   beta2: 0.999
   lr:
+    name: Cosine
     learning_rate: 0.001
+    warmup_epoch: 2
   regularizer:
     name: 'L2'
     factor: 0
@@ -61,23 +63,23 @@ Metric:
 
 Train:
   dataset:
-    name: SimpleDataSet  # 数据格式，还支持LMDBDataSet、PGDataSet、PubTabDataSet
-    data_dir: ./train_data/icdar2015/text_localization/  # 数据集图片存放路径，可以写父级目录，在label_list再写更详细的相对路径
-    label_file_list:  # 数据标签路径
-      - ./train_data/icdar2015/text_localization/train_icdar2015_label.txt  # 格式，一行标注一个图片：路径，json格式的解释信息
+    name: XlSimpleDataSet
+    data_dir: /home/datasets/RealEstate2020/2_data/refineAgree
+    data_list:
+      - { 'type': refineAgree, 'img_dir': imgs, 'json_dir': data, 'label_file': train.txt }
     ratio_list: [1.0]
     transforms:
       - DecodeImage: # load image
           img_mode: BGR
           channel_first: False
       - DetLabelEncode: # Class handling label
-      - IaaAugment:  # imgaug库的图像增强
+      - IaaAugment:
           augmenter_args:
             - { 'type': Fliplr, 'args': { 'p': 0.5 } }
             - { 'type': Affine, 'args': { 'rotate': [-10, 10] } }
             - { 'type': Resize, 'args': { 'size': [0.5, 3] } }
       - EastRandomCropData:
-          size: [640, 640]
+          size: [960, 960]
           max_tries: 50
           keep_ratio: true
       - MakeBorderMap:
@@ -98,23 +100,22 @@ Train:
   loader:
     shuffle: True
     drop_last: False
-    batch_size_per_card: 16
-    num_workers: 8
-    use_shared_memory: False
+    batch_size_per_card: 8
+    num_workers: 4
 
 Eval:
   dataset:
-    name: SimpleDataSet
-    data_dir: ./train_data/icdar2015/text_localization/
-    label_file_list:
-      - ./train_data/icdar2015/text_localization/test_icdar2015_label.txt
+    name: XlSimpleDataSet
+    data_dir: /home/datasets/RealEstate2020/2_data/refineAgree
+    data_list:
+      - { 'type': refineAgree, 'img_dir': imgs, 'json_dir': data, 'label_file': val.txt }
     transforms:
       - DecodeImage: # load image
           img_mode: BGR
           channel_first: False
       - DetLabelEncode: # Class handling label
       - DetResizeForTest:
-          image_shape: [736, 1280]
+#           image_shape: [736, 1280]
       - NormalizeImage:
           scale: 1./255.
           mean: [0.485, 0.456, 0.406]
@@ -127,5 +128,4 @@ Eval:
     shuffle: False
     drop_last: False
     batch_size_per_card: 1 # must be 1
-    num_workers: 8
-    use_shared_memory: False
+    num_workers: 2

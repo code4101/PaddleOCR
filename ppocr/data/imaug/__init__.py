@@ -24,7 +24,7 @@ from .random_crop_data import EastRandomCropData, PSERandomCrop
 from .rec_img_aug import RecAug, RecResizeImg, ClsResizeImg, SRNRecResizeImg, NRTRRecResizeImg
 from .randaugment import RandAugment
 from .copy_paste import CopyPaste
-from .operators import *
+from .operators import *  # 操作器的定义方式，可以参考这里的DecodeImage实现
 from .label_ops import *
 
 from .east_process import *

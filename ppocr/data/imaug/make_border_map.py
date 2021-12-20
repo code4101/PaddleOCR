@@ -35,6 +35,9 @@ __all__ = ['MakeBorderMap']
 
 
 class MakeBorderMap(object):
+    """ ppocr db模型代码阅读理解_垚1234的博客-CSDN博客:
+    https://blog.csdn.net/weixin_41393000/article/details/118740663
+    """
     def __init__(self,
                  shrink_ratio=0.4,
                  thresh_min=0.3,

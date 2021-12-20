@@ -48,7 +48,7 @@ def main(config, device, logger, vdl_writer):
 
     global_config = config['Global']
 
-    # build dataloader
+    # 1 创建训练、验证集的dataloader，build dataloader
     train_dataloader = build_dataloader(config, 'Train', device, logger)
     if len(train_dataloader) == 0:
         logger.error(
@@ -59,16 +59,19 @@ def main(config, device, logger, vdl_writer):
         )
         return
 
+    # Eval数据集是可选的，可以不设置
     if config['Eval']:
         valid_dataloader = build_dataloader(config, 'Eval', device, logger)
     else:
         valid_dataloader = None
 
-    # build post process
+    # print('train_dataloader', len(train_dataloader))
+    # exit()
+    # 2 创建后处理方法，build post process
     post_process_class = build_post_process(config['PostProcess'],
                                             global_config)
 
-    # build model
+    # 3 build model
     # for rec algorithm
     if hasattr(post_process_class, 'character'):
         char_num = len(getattr(post_process_class, 'character'))
@@ -84,17 +87,17 @@ def main(config, device, logger, vdl_writer):
     if config['Global']['distributed']:
         model = paddle.DataParallel(model)
 
-    # build loss
+    # 4 build loss
     loss_class = build_loss(config['Loss'])
 
-    # build optim
+    # 5 build optim
     optimizer, lr_scheduler = build_optimizer(
         config['Optimizer'],
         epochs=config['Global']['epoch_num'],
         step_each_epoch=len(train_dataloader),
         parameters=model.parameters())
 
-    # build metric
+    # 6 build metric
     eval_class = build_metric(config['Metric'])
     # load pretrain model
     pre_best_model_dict = load_dygraph_params(config, model, logger, optimizer)
@@ -102,7 +105,7 @@ def main(config, device, logger, vdl_writer):
     if valid_dataloader is not None:
         logger.info('valid dataloader has {} iters'.format(
             len(valid_dataloader)))
-    # start train
+    # 7 start train
     program.train(config, train_dataloader, valid_dataloader, device, model,
                   loss_class, optimizer, lr_scheduler, post_process_class,
                   eval_class, pre_best_model_dict, logger, vdl_writer)
@@ -127,6 +130,17 @@ def test_reader(config, device, logger):
 
 
 if __name__ == '__main__':
+    r""" 示例用法
+    脚本：D:\slns\PaddleOCR\tools\train.py
+    参数：
+        -c configs/det/det_mv3_db.yml
+        -o Global.pretrained_model=./pretrain_models/MobileNetV3_large_x0_5_pretrained
+    工作目录：D:\home\chenkunze\pp
+    """
+
+    # 用于获取配置、设备、日志、visualdl相关信息
     config, device, logger, vdl_writer = program.preprocess(is_train=True)
+
+    # 如果不想用配置文件，只要能在内存设置好这几个对象，也可以直接调用main
     main(config, device, logger, vdl_writer)
     # test_reader(config, device, logger)

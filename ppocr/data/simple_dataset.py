@@ -17,18 +17,29 @@ import random
 from paddle.io import Dataset
 from .imaug import transform, create_operators
 
+import json
+
+__all__ = ['SimpleDataSet', 'XlSimpleDataSet']
+
 
 class SimpleDataSet(Dataset):
+    """ paddleocr 源生的基础数据格式
+    每张图的标注压缩在一个总的txt文件里
+    """
+
     def __init__(self, config, mode, logger, seed=None):
         super(SimpleDataSet, self).__init__()
         self.logger = logger
         self.mode = mode.lower()
 
+        # 这里能取到全局的配置信息
         global_config = config['Global']
         dataset_config = config[mode]['dataset']
         loader_config = config[mode]['loader']
 
+        # label文件里图片路径和json之间的分隔符
         self.delimiter = dataset_config.get('delimiter', '\t')
+
         label_file_list = dataset_config.pop('label_file_list')
         data_source_num = len(label_file_list)
         ratio_list = dataset_config.get("ratio_list", [1.0])
@@ -45,11 +56,14 @@ class SimpleDataSet(Dataset):
         logger.info("Initialize indexs of datasets:%s" % label_file_list)
         self.data_lines = self.get_image_info_list(label_file_list, ratio_list)
         self.data_idx_order_list = list(range(len(self.data_lines)))
+        # shuffle好像在dataset和dataloader会重复操作，虽然其实也没什么事~~
         if self.mode == "train" and self.do_shuffle:
             self.shuffle_data_random()
+        # （读取图片）数据增广操作器
         self.ops = create_operators(dataset_config['transforms'], global_config)
 
     def get_image_info_list(self, file_list, ratio_list):
+        """ 从多个文件按比例随机抽样获取样本 """
         if isinstance(file_list, str):
             file_list = [file_list]
         data_lines = []
@@ -69,6 +83,11 @@ class SimpleDataSet(Dataset):
         return
 
     def get_ext_data(self):
+        """ 是否要添加其他图片及数量
+
+        猜测是用于mixup、cropmix等场合的数据增广，除了当前图，能随机获取其他来源图片，做综合处理
+        其它来源的图，会调用前2个opts，读取图片，解析标签
+        """
         ext_data_num = 0
         for op in self.ops:
             if hasattr(op, 'ext_data_num'):
@@ -78,6 +97,7 @@ class SimpleDataSet(Dataset):
         ext_data = []
 
         while len(ext_data) < ext_data_num:
+            # 随机从中抽一个样本
             file_idx = self.data_idx_order_list[np.random.randint(self.__len__(
             ))]
             data_line = self.data_lines[file_idx]
@@ -110,6 +130,8 @@ class SimpleDataSet(Dataset):
             data = {'img_path': img_path, 'label': label}
             if not os.path.exists(img_path):
                 raise Exception("{} does not exist!".format(img_path))
+            # 无论是图片还是任何文件，都是统一先读成bytes了，然后交由transform的配置实现。
+            #	其中DecodeImage又可以解析读取图片数据。
             with open(data['img_path'], 'rb') as f:
                 img = f.read()
                 data['image'] = img
@@ -121,6 +143,8 @@ class SimpleDataSet(Dataset):
                     data_line, e))
             outs = None
         if outs is None:
+            # 如果遇到解析出错的数据，训练阶段会随机取另一个图片代替。
+            #	eval阶段则直接取下一张有效图片代替。
             # during evaluation, we should fix the idx to get same results for many times of evaluation.
             rnd_idx = np.random.randint(self.__len__(
             )) if self.mode == "train" else (idx + 1) % self.__len__()
@@ -129,3 +153,142 @@ class SimpleDataSet(Dataset):
 
     def __len__(self):
         return len(self.data_idx_order_list)
+
+
+class SimpleDataSetExt(SimpleDataSet):
+    """ 自定义的数据结构类，支持输入标注文件所在目录来初始化
+
+    这里的 __init__、get_image_info_list 设计了一套特殊的输入范式
+    """
+
+    def __init__(self, config, mode, logger, seed=None):
+        self.logger = logger
+        self.mode = mode.lower()
+
+        # 这里能取到全局的配置信息
+        global_config = config['Global']
+        dataset_config = config[mode]['dataset']
+        loader_config = config[mode]['loader']
+
+        # label文件里图片路径和json之间的分隔符
+        self.delimiter = dataset_config.get('delimiter', '\t')
+
+        self.data_dir = dataset_config['data_dir']
+        self.do_shuffle = loader_config['shuffle']
+
+        self.seed = seed
+        data_list = dataset_config.get('data_list', [])
+        logger.info("Initialize indexs of datasets:%s" % data_list)
+        self.data_lines = self.get_image_info_list(data_list)
+        self.data_idx_order_list = list(range(len(self.data_lines)))
+        # shuffle好像在dataset和dataloader会重复操作，虽然其实也没什么事~~
+        if self.mode == "train" and self.do_shuffle:
+            self.shuffle_data_random()
+        # （读取图片）数据增广操作器
+        self.ops = create_operators(dataset_config['transforms'], global_config)
+
+    def get_image_info_list(self, data_list):
+        """ 从标注文件所在目录获取每张图的标注信息
+
+        :return: list data_lines，每一行有两列，第1列是图片数据相对data_dir的路径，\t隔开，第2列是json标注数据
+        """
+        if isinstance(data_list, dict):
+            data_list = [data_list]
+
+        data_lines = []
+
+        for idx, cfg in enumerate(data_list):
+            add_lines = [x.encode('utf8') for x in self.get_image_info(cfg)]
+            data_lines.extend(add_lines)
+
+        return data_lines
+
+    def get_image_info(self, cfg):
+        raise NotImplementedError
+
+
+class XlSimpleDataSet(SimpleDataSetExt):
+    """ 支持直接配置原始的icdar2015数据格式
+    """
+
+    def get_image_info(self, cfg):
+        t = cfg.pop('type') if ('type' in cfg) else ''
+        func = getattr(self, 'from_' + t, None)
+        if func:
+            return func(**cfg)
+        else:
+            raise TypeError('指定数据集格式不存在')
+
+    def from_refineAgree(self, img_dir, json_dir, label_file):
+        """ 只需要输入根目录 """
+        from pyxllib.xl import XlPath
+        from pyxllib.data.labelme import LabelmeDict
+
+        data_dir = XlPath(self.data_dir)
+        img_dir = data_dir / img_dir
+        json_dir = data_dir / json_dir
+        label_file = data_dir / label_file
+
+        def labelme2json(d):
+            """ labelme的json转为paddle的json标注 """
+            label = []
+            shapes = d['shapes']
+            for sp in shapes:
+                msg = json.loads(sp['label'])
+                if msg['type'] != '印刷体':
+                    continue
+                result = {"transcription": msg['text'],
+                          "points": LabelmeDict.to_quad_pts(sp)}
+                label.append(result)
+            return label
+
+        data_lines = []
+        sample_list = label_file.read_text().splitlines()
+        for x in sample_list:
+            if not x: continue  # 忽略空行
+            impath = (img_dir / (x + '.jpg')).relative_to(data_dir).as_posix()
+            f = json_dir / (x + '.json')
+            json_label = labelme2json(f.read_json())
+            label = json.dumps(json_label, ensure_ascii=False)
+            data_lines.append(('\t'.join([impath, label])))
+
+        return data_lines
+
+    def from_icdar2015(self, img_dir, label_dir, ratio=None):
+        from pyxllib.xl import XlPath
+
+        data_dir = XlPath(self.data_dir)
+        img_dir = data_dir / img_dir
+        label_dir = data_dir / label_dir
+
+        txt_files = list(label_dir.glob('*.txt'))
+        data_lines = []
+
+        if ratio:
+            # TODO 过滤标注，负数可以从后往前取
+            raise NotImplementedError
+
+        def label2json(content):
+            """ 单个图的content标注内容转为json格式 """
+            label = []
+            for line in content.splitlines():
+                tmp = line.split(',')
+                points = tmp[:8]
+                s = []
+                for i in range(0, len(points), 2):
+                    b = points[i:i + 2]
+                    b = [int(t) for t in b]
+                    s.append(b)
+                result = {"transcription": tmp[8], "points": s}
+                label.append(result)
+            return label
+
+        for f in txt_files:
+            # stem[3:]是去掉标注文件名多出的'gt_'的前缀
+            impath = (img_dir / (f.stem[3:] + '.jpg')).relative_to(data_dir).as_posix()
+            # icdar的标注文件，有的是utf8，有的是utf-8-sig，这里使用我的自动识别功能
+            json_label = label2json(f.read_text(encoding=None))
+            label = json.dumps(json_label, ensure_ascii=False)
+            data_lines.append(('\t'.join([impath, label])))
+
+        return data_lines
